@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Extiende la vista de presupuestos y agrega un botón -->
+        <record id="view_sale_order_form_inherited" model="ir.ui.view">
+            <field name="name">sale.order.form.inherited</field>
+            <field name="model">custom.sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='375']" position="after">
+                    <button name="action_custom_button" string="Mi Botón Personalizado" type="object" class="btn-primary" context="{}"/>
+                </xpath>
+            </field>
+        </record>
+        
+    </data>
+</odoo>
