@@ -1,0 +1,16 @@
+<odoo>
+    <record id="view_sale_order_form_inherited" model="ir.ui.view">
+        <field name="name">sale.order.inherited</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                    <field name="iterated" invisible="1"/>
+                    <button name="check_partner_sap_registration" string="Enviar a SAP"
+                            type="object" class="oe_highlight"
+                            attrs="{'invisible': ['|', ('state', '!=', 'sale'), ('iterated', '=', True)]}"/>
+
+            </xpath>
+        </field>
+    </record>
+</odoo>

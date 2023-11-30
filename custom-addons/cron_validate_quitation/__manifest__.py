@@ -4,10 +4,12 @@
     'category': 'Sales',
     'author': 'Alex Fredes',
     'license': 'AGPL-3',
-    'depends': ['sale'],
+    'depends': ['base', 'sale'],
+    'application': True,
+    "data" : [
+        "views/view.xml",
+    ],
     'installable': True,
-     'data': [
-        'views/view.xml', 
-    ]
-    
+    'auto_install': False,
+    'application': True,
 }
