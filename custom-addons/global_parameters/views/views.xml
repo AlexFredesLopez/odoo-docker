@@ -1,0 +1,28 @@
+<odoo>
+    <record id="view_tree_parameters" model="ir.ui.view">
+        <field name="name">view.tree.parameters</field>
+        <field name="model">global.parameters</field>
+        <field name="arch" type="xml">
+            <tree string="Parámetros">
+                <field name="parameterId"/>
+                <field name="name"/>
+                <field name="value"/>
+
+            </tree>
+        </field>
+    </record>
+
+    <record id="action_view_parameters" model="ir.actions.act_window">
+        <field name="name">Listado de Parámetros</field>
+        <field name="res_model">global.parameters</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+
+    <menuitem
+        id="menu_parameters"
+        parent=""
+        action="global_parameters.action_view_parameters"/>
+
+
+</odoo>
