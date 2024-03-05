@@ -1,4 +1,3 @@
-
 import logging
 import base64
 import requests
@@ -13,6 +12,14 @@ class SaleOrder(models.Model):
     iterated = fields.Boolean(string='Iterated', store=True, default=False)
     sap_doc_entry = fields.Char(string='Doc entry Sap', store=True , default=None)
     sap_card_code = fields.Char(string='Card Code SAP', store=True , default=None)
+    
+
+    # Constantes con los nombres de los campos
+    URL_SAP = 'SAP_URL'
+    COMPANY_DB = 'SAP_COMPANY_DB'
+    USER_NAME = 'SAP_USERNAME'
+    PASSWORD = 'SAP_PASSWORD'
+    
 
     def check_partner_sap_registration(self):
         
@@ -20,6 +27,28 @@ class SaleOrder(models.Model):
 
         order = self.env['sale.order'].search([('id', '=', order_id), ('iterated', '=', False)])
 
+        urlSap = self.env['global.parameters'].search([('parameterId', '=', self.URL_SAP)], limit=1).value
+        companyDb = self.env['global.parameters'].search([('parameterId', '=', self.COMPANY_DB)], limit=1).value
+        UserName = self.env['global.parameters'].search([('parameterId', '=', self.USER_NAME)], limit=1).value
+        Password = self.env['global.parameters'].search([('parameterId', '=', self.PASSWORD)], limit=1).value
+
+        if(urlSap == "" or urlSap == None or urlSap == False or urlSap == " "):
+            order.message_post(body='Error al crear orden SAP: No se ha configurado la URL de SAP')
+            return False
+
+        if(companyDb == "" or companyDb == None or companyDb == False or companyDb == " "):
+            order.message_post(body='Error al crear orden SAP: No se ha configurado la empresa de SAP')
+            return False
+        
+        if(UserName == "" or UserName == None or UserName == False or UserName == " "):
+            order.message_post(body='Error al crear orden SAP: No se ha configurado el usuario de SAP')
+            return False
+
+        if(Password == "" or Password == None or Password == False or Password == " "):
+            order.message_post(body='Error al crear orden SAP: No se ha configurado la contraseña de SAP')
+            return False
+
+    
         
         if not order:
             _logger.info(' ******  La órden ya fue enviada a SAP ******')
@@ -28,10 +57,18 @@ class SaleOrder(models.Model):
     
         try:
             _logger.info(' ******  Se intenta crear el usuario en SAP ******')
+            
+            if(order.partner_id.vat == "" or order.partner_id.vat == None or order.partner_id.vat == False or order.partner_id.vat == " "):
+                message = ('Error al crear orden SAP: %s') % ('El cliente no tiene RUT')
+                order.message_post(body=message)
+                return self._display_notification(message, title='Error al crear orden SAP', type='danger')
+            
+            
+            
+            _logger.info(' ******  RUT DEL CLIENTE ****** , %s', order.partner_id.vat)
             checkSocioNegocio = self.__checkPartnerSapRegistration(order)
 
             if checkSocioNegocio['status_code'] in (201, 200):
-                _logger.info(' ******  USUARIO CREADO EN SAP ******')
 
                 order.write({
                     'iterated': True,
@@ -40,17 +77,33 @@ class SaleOrder(models.Model):
                 })
 
 
-                message = ('Orden Sap Creada exitosamente, DocEntry: %s, CardCode: %s') % (checkSocioNegocio['data']['DocEntry'], checkSocioNegocio['data']['CardCode'])
-                return self._display_notification(message)
-            else:
-                raise Exception(checkSocioNegocio['message'])
-
+                message = ('Cotización Creada exitosamente. DocEntry: %s, CardCode: %s') % (checkSocioNegocio['data']['DocEntry'], checkSocioNegocio['data']['CardCode'])
+                
+                # agregarlo al log de la orden
             
+                order.message_post(body=message)
+                
+                # refresh the order
+                
+                self._display_notification(message, title='Orden creada correctamente', type='success')
+                
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'reload',
+                }
+                
+                
+            else:
+                
+                message = ('Error al crear orden SAP: %s') % (checkSocioNegocio['message'])
+                return self._display_notification(message, title='Error al crear orden SAP', type='danger')
             
         except Exception as e:
-            _logger.info(' ******  ERROR AL CREAR USUARIO EN SAP ******')
-            _logger.info(' ******  ERROR ****** , %s', e)
-            return False
+
+            error = ('Error al crear orden SAP: %s') % (e)
+            _logger.info(' ******  ERROR AL CREAR ORDEN SAP ****** , %s', error)
+            order.message_post(body=error)
+            return self._display_notification("Error el crear la orden en SAP ", title='Error al crear orden SAP', type='danger')
 
 
 
@@ -61,9 +114,11 @@ class SaleOrder(models.Model):
         cardCode = 'C' + order.partner_id.vat.replace('-', '').replace('.', '')
         _logger.info(' ******  CONSULTADO RUT < %s > A SAP', cardCode)
 
-        # iniciamos la búsqueda 
-        url = f'https://cl-cloud-su4.sapparapymes.cloud:50000/b1s/v1/BusinessPartners(\'{cardCode}\')?$select=CardCode,CardName,CardType'
 
+        urlSap = self.env['global.parameters'].search([('parameterId', '=', self.URL_SAP)], limit=1).value
+        # iniciamos la búsqueda 
+        url = urlSap + "BusinessPartners('" + cardCode + "')"
+    
         # Es de tipo GET
         headers = {
             'Content-Type': 'application/json',  # Ajusta el tipo de contenido según lo que espera el servicio SAP
@@ -73,8 +128,11 @@ class SaleOrder(models.Model):
         response = requests.get(url, headers=headers)
         
         socioNegocio = None
+        
+        
+        _logger.info(' ******  RESPONSE SOCIO NEGOCIO ****** , %s', response.status_code)
 
-        if response.status_code == 200:
+        if response.status_code == 200 or response.status_code == 201:
             socioNegocio = {
                 
                 'status_code': response.status_code,
@@ -128,7 +186,9 @@ class SaleOrder(models.Model):
         _logger.info(' ******  CREANDO SOCIO NEGOCIO SAP ******')
         # Iniciamos la conexión con SAP
         conn = self.__openConnection()
-        url = f'https://cl-cloud-su4.sapparapymes.cloud:50000/b1s/v1/BusinessPartners'
+
+        urlSap = self.env['global.parameters'].search([('parameterId', '=', self.URL_SAP)], limit=1).value
+        url = urlSap + 'BusinessPartners'
 
         headers = {
             'Content-Type': 'application/json',  # Ajusta el tipo de contenido según lo que espera el servicio SAP
@@ -139,16 +199,17 @@ class SaleOrder(models.Model):
 
         post_data = {
             "CardCode": cardCode, # VAT + C
-            "CardName": order.res_partner.name, # name
+            "CardName": order.partner_id.name, # name
             "CardType": "cCustomer", # todo serán cCustomer
-            "Phone1": order.res_partner.phone, # phone
-            "Cellular": order.res_partner.mobile, # mobile
-            "EmailAddress": order.res_partner.email, # email
-            "FederalTaxID": order.res_partner.vat, # vat
-            "Notes": order.res_company.name, # company_id.name
+            "Phone1": order.partner_id.phone, # phone
+            "Cellular": order.partner_id.mobile, # mobile
+            "EmailAddress": order.partner_id.email, # email
+            "FederalTaxID": order.partner_id.vat, # vat
+            "Notes": order.company_id.name, # company_id.name,
+            "ProjectCode" : 9999,
+            "U_NX_INDUSTRIA" : "A",
+            "U_NX_SEGMENTO" : "A"
         }
-
-        _logger.info(' ******  DATOS A INSERTAR : %s', post_data)
 
         response = requests.post(url, json=post_data, headers=headers)
 
@@ -166,8 +227,8 @@ class SaleOrder(models.Model):
             _logger.info(' ******  ERROR AL CREAR SOCIO NEGOCIO SAP ******')
             return {
                 'status_code': response.status_code,
-                'message': 'Error al crear partnet_id: ' + order.partner_id.id,
-                'data' : ""
+                'message': 'Error al crear partner_id: ' + order.partner_id.id,
+                'data' : response.json()
             }
 
         
@@ -175,10 +236,8 @@ class SaleOrder(models.Model):
 
     def _createOrderSap(self, data, order) :
         _logger.info(' ******  Creando orden SAP ******')
-        _logger.info(' ******  DATA ****** , %s', data)
         # fecha del dia
         fecha = datetime.datetime.now()
-        
         
         # Debemos sumar el price_subtotal de todas las líneas de la orden
         price_subtotal = 0
@@ -189,23 +248,37 @@ class SaleOrder(models.Model):
         payload = {
             "CardCode": data['CardCode'],
             "DocDueDate": fecha.strftime("%Y-%m-%d"), # fecha de hoy 
-            "Comments": "Venta realizada por integración Starkcloud", # 
+            "Comments": "Venta realizada por integración Starkcloud N° Cuotas %s, Cantidad Usuario %s" % (order.x_studio_meses, order.x_studio_cant_usuarios), #
+            "U_NX_Origen": "StarkCloud",
+            "U_NX_Partner": "H&CO Chile",
+            "U_NX_ANegocios" : "Clientes",
             "DocumentLines":[
                 {
-                    "ItemCode":"I00003",
+                    "ItemCode": "PAAS-ATV",
                     "Quantity":1.0, # Por ahora será solo 1 
                     "UnitPrice":price_subtotal, #select sum(price_subtotal) from sale_order_line where order_id  = 25;
-                    "Dscription": "Compra realizada con Nota de venta %s" % order.id
-                     # order.id # La descripción de la línea -> compra realizada según nota de venta 25
+                    "Dscription": "Compra realizada con Nota de venta %s" % order.id,
+                    "Currency": order.currency_id.name,
+                    "ProjectCode" : "9999",
+                    "CostingCode" : "B001",
+                    "CostingCode2" : "D002",
+                    "CostingCode3" : "A003",
                 } 
             ]
         }    
+        
+        
+        if(order.x_studio_pedido_ == "" or order.x_studio_pedido_ == None or order.x_studio_pedido_ == False or order.x_studio_pedido_ == " "):        
+            order.write({
+                'x_studio_pedido_': order.id
+            })
 
 
-        _logger.info(' ******  PAYLOAD *******, %s', payload)
+        _logger.info(' ******  PAYLOAD  NOTA DE VENTA *******, %s', payload)
 
+        urlSap = self.env['global.parameters'].search([('parameterId', '=', self.URL_SAP)], limit=1).value
 
-        url = f'https://cl-cloud-su4.sapparapymes.cloud:50000/b1s/v1/Orders'
+        url = urlSap + 'Quotations'
 
         conn = self.__openConnection()
         # Es de tipo POST
@@ -240,16 +313,22 @@ class SaleOrder(models.Model):
 
 
     def __openConnection(self):
+        _logger.info(' ******  CREANDO CONEXIÓN A SAP ******')
 
+        urlSap = self.env['global.parameters'].search([('parameterId', '=', self.URL_SAP)], limit=1).value
+        companyDb = self.env['global.parameters'].search([('parameterId', '=', self.COMPANY_DB)], limit=1).value
+        UserName = self.env['global.parameters'].search([('parameterId', '=', self.USER_NAME)], limit=1).value
+        Password = self.env['global.parameters'].search([('parameterId', '=', self.PASSWORD)], limit=1).value
 
-        _logger.info(' ******  conexión con SAP ******')
-        sap_endpoint_url = 'https://cl-cloud-su4.sapparapymes.cloud:50000/b1s/v1/Login'
+        sap_endpoint_url = urlSap + 'Login'
+
+        _logger.info(' ******  URL SAP ****** , %s', sap_endpoint_url)
 
         # Datos que deseas enviar en el cuerpo de la solicitud POST, puede ser un diccionario de Python
         post_data = {
-            "CompanyDB": "SBODEMOCL3",
-            "Password": "fBAGohonYpBBc11i",
-            "UserName": "demosap1"
+            "CompanyDB": companyDb,
+            "Password": Password,
+            "UserName": UserName
         }
 
         # Realiza la solicitud POST con las credenciales y los datos
@@ -257,30 +336,27 @@ class SaleOrder(models.Model):
             'Content-Type': 'application/json'  # Ajusta el tipo de contenido según lo que espera el servicio SAP
         }
 
-        _logger.info(' ******   Datos a enviar: %s', post_data)
-
         response = requests.post(sap_endpoint_url, json=post_data, headers=headers)
 
-        _logger.info(' ******  Status Code, %s', response.status_code)
 
+        _logger.info(' ******  RESPONSE CONN ****** , %s', response.json())
         if response.status_code == 200:
-            _logger.info(' ******  Llegamos OK al endpoint, %s', response.json())
             return response.json()
         else:
-            _logger.error(' ******* Error al verificar registro SAP para el partner ID: %s', response.json())
+            return self._display_notification('Error al conectar a SAP', title='Error al crear orden SAP', type='danger')
 
 
     def __closeConnection(self):
-
-        _logger.info(' ******  conexión con SAP ******')
-        sap_endpoint_url = 'https://cl-cloud-su4.sapparapymes.cloud:50000/b1s/v1/Logout' 
+        
+        sap_endpoint_url = self.urlSap + 'Logout' 
 
         headers = { 'Content-Type': 'application/json'  }   
 
         response = requests.post(sap_endpoint_url, headers=headers)
 
         if(response.status_code == 204):
-            _logger.info(' ******  Cerramos conexión con SAP, %s', response.status_code)
+            return False
+            
 
     @api.model
     def _display_notification(self, message, title='Operación Exitosa', type='success'):

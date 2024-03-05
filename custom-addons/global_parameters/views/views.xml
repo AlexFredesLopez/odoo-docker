@@ -7,6 +7,9 @@
                 <field name="parameterId"/>
                 <field name="name"/>
                 <field name="value"/>
+                <field name="groupId"/>
+                <field name="create_date"/>
+                <field name="write_date"/>
 
             </tree>
         </field>
